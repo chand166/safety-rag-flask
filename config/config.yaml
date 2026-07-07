@@ -23,13 +23,13 @@ embedding:
   hf_mirror: "https://hf-mirror.com"
 
 documents:
-  knowledge_base: "D:\\安全培训\\安全培训知识库"
+  knowledge_base: "./knowledge_base"
   supported_extensions: [".pdf", ".doc", ".docx", ".pptx", ".xlsx", ".xls", ".txt"]
   chunk: {size: 256, overlap: 32}
 
 vector_store:
   type: "chroma"
-  persist_directory: "D:\\safety-rag\\data\\chroma_db"
+  persist_directory: "./data/chroma_db"
   collection_name: "safety_knowledge"
   retrieval: {top_k: 3, relevance_threshold: 0.0}
 
