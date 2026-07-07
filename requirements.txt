@@ -1,0 +1,14 @@
+flask>=3.0
+gunicorn>=21.2
+openai>=1.0
+chromadb>=0.5
+sentence-transformers>=2.2
+pypdf>=3.0
+python-docx>=0.8
+python-pptx>=0.6
+openpyxl>=3.1
+PyMuPDF>=1.23
+PyYAML>=6.0
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.1

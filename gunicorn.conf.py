@@ -1,0 +1,9 @@
+# Gunicorn 配置
+bind = "0.0.0.0:8501"
+workers = 4
+worker_class = "sync"
+timeout = 120
+keepalive = 5
+accesslog = "./logs/access.log"
+errorlog = "./logs/error.log"
+loglevel = "info"

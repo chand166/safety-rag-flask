@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库AI | 智能问答</title>
+<link rel="icon" href="/assets/1.png">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: 'Microsoft YaHei', 'Segoe UI', 'PingFang SC', sans-serif;
+    background: linear-gradient(180deg, #F0F7FF 0%, #E8F0FE 100%);
+    height: 100vh; display: flex; color: #1E293B;
+}
+
+/* 侧边栏 */
+.sidebar {
+    width: 320px; background: rgba(255,255,255,0.95);
+    border-right: 1px solid rgba(37,99,235,0.1);
+    padding: 20px; overflow-y: auto; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 16px;
+}
+.sidebar .logo {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 4px;
+}
+.sidebar .logo img { width: 48px; height: 48px; border-radius: 10px; }
+.sidebar .logo .title { font-size: 1.3rem; font-weight: 700;
+    background: linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.sidebar .logo .subtitle { font-size: 0.78rem; color: #64748B; }
+.sidebar-section h3 { font-size: 0.85rem; color: #1E293B; margin-bottom: 8px; }
+.sidebar .stats { display: flex; gap: 12px; }
+.sidebar .stat-card {
+    flex: 1; background: #F8FAFC; border-radius: 10px; padding: 10px; text-align: center;
+    border: 1px solid rgba(37,99,235,0.06);
+}
+.sidebar .stat-card .num { font-size: 1.3rem; font-weight: 700; color: #2563EB; }
+.sidebar .stat-card .label { font-size: 0.72rem; color: #64748B; margin-top: 2px; }
+.sidebar .cat-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.sidebar .cat-tag {
+    display: inline-block; background: #EFF6FF; color: #1D4ED8;
+    padding: 2px 10px; border-radius: 12px; font-size: 0.72rem; border: 1px solid rgba(37,99,235,0.1);
+}
+.sidebar hr { border: none; height: 1px; background: linear-gradient(90deg, transparent, rgba(37,99,235,0.1), transparent); margin: 4px 0; }
+.sidebar .file-search input {
+    width: 100%; padding: 8px 12px; border: 1px solid #DBEAFE; border-radius: 10px;
+    font-size: 0.85rem; outline: none; background: rgba(255,255,255,0.9);
+}
+.sidebar .file-search input:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+.sidebar .file-result { margin-top: 4px; }
+.sidebar .file-item {
+    display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+    border-radius: 8px; cursor: pointer; font-size: 0.82rem; color: #1D4ED8;
+    transition: background 0.15s; width: 100%; text-align: left;
+    border: none; background: transparent; font-family: inherit;
+}
+.sidebar .file-item:hover { background: rgba(37,99,235,0.06); }
+.sidebar .file-item .cat-badge {
+    font-size: 0.65rem; background: #EFF6FF; color: #2563EB;
+    padding: 1px 6px; border-radius: 6px; margin-left: auto; white-space: nowrap;
+}
+.sidebar .file-info { font-size: 0.75rem; color: #64748B; }
+.sidebar .settings input[type="range"] { width: 100%; accent-color: #2563EB; }
+.sidebar .settings label { font-size: 0.82rem; color: #475569; }
+.sidebar .action-btn {
+    width: 100%; padding: 8px; border-radius: 10px; border: 1px solid #DBEAFE;
+    background: rgba(255,255,255,0.8); color: #2563EB; font-size: 0.82rem;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+}
+.sidebar .action-btn:hover { background: rgba(37,99,235,0.05); border-color: #2563EB; }
+.sidebar-footer { font-size: 0.72rem; color: #94A3B8; margin-top: auto; }
+
+/* 主区域 */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.header {
+    background: rgba(255,255,255,0.95); border-bottom: 1px solid rgba(37,99,235,0.1);
+    padding: 12px 24px; display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04); flex-shrink: 0;
+}
+.header h1 {
+    font-size: 1.4rem; font-weight: 700;
+    background: linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+
+/* 聊天区域 */
+.chat-area { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+.chat-area:empty { display: flex; align-items: center; justify-content: center; }
+
+/* 消息 */
+.message { max-width: 800px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 6px; }
+.message.user { align-items: flex-end; }
+.message.assistant { align-items: flex-start; }
+.message-bubble {
+    padding: 14px 18px; border-radius: 16px; line-height: 1.6;
+    max-width: 85%; font-size: 0.9rem;
+}
+.message.user .message-bubble {
+    background: linear-gradient(135deg, #2563EB 0%, #3B82F6 100%);
+    color: white; border-bottom-right-radius: 4px;
+}
+.message.assistant .message-bubble {
+    background: rgba(255,255,255,0.9); color: #1E293B;
+    border: 1px solid rgba(37,99,235,0.08);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+    border-bottom-left-radius: 4px;
+}
+.message-label { font-size: 0.75rem; color: #94A3B8; padding: 0 4px; }
+
+/* 来源 */
+.sources { max-width: 800px; width: 100%; margin: 0 auto; }
+.sources summary {
+    font-size: 0.85rem; color: #1D4ED8; font-weight: 600; cursor: pointer;
+    padding: 8px 12px; border-radius: 8px; background: rgba(59,130,246,0.04);
+}
+.source-item {
+    background: rgba(255,255,255,0.85); border-radius: 10px; padding: 10px 14px;
+    margin: 6px 0; border-left: 3px solid #3B82F6; font-size: 0.85rem;
+}
+.source-item .filename { color: #1D4ED8; font-weight: 600; }
+.source-item .meta { font-size: 0.8em; color: #64748B; margin: 2px 0; }
+.source-item .snippet {
+    font-size: 0.85em; color: #475569; margin-top: 4px; padding: 6px 10px;
+    background: rgba(59,130,246,0.04); border-radius: 6px;
+}
+.source-item .open-btn {
+    margin-top: 6px; padding: 4px 12px; border-radius: 8px; border: 1px solid #DBEAFE;
+    background: rgba(255,255,255,0.8); color: #2563EB; font-size: 0.78rem;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+}
+.source-item .open-btn:hover { background: rgba(37,99,235,0.05); border-color: #2563EB; }
+.match-tag { font-size: 0.78rem; color: #64748B; padding: 0 4px; }
+
+/* 欢迎卡片 */
+.welcome-card { text-align: center; padding: 40px 20px; }
+.welcome-card .icon { font-size: 3rem; margin-bottom: 12px; }
+.welcome-card h2 { color: #1E293B; margin-bottom: 8px; }
+.welcome-card p { color: #64748B; }
+.welcome-card .tags { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+.welcome-card .tags span {
+    display: inline-block; background: #EFF6FF; color: #1D4ED8;
+    padding: 4px 14px; border-radius: 20px; font-size: 0.82rem;
+    border: 1px solid rgba(37,99,235,0.1);
+}
+
+/* 输入区域 */
+.input-area {
+    background: rgba(255,255,255,0.95); border-top: 1px solid rgba(37,99,235,0.1);
+    padding: 12px 24px; flex-shrink: 0;
+}
+.input-container { max-width: 800px; margin: 0 auto; display: flex; gap: 8px; }
+.input-container input {
+    flex: 1; padding: 12px 16px; border: 1px solid #DBEAFE; border-radius: 12px;
+    font-size: 0.9rem; outline: none; font-family: inherit;
+    background: rgba(255,255,255,0.9);
+}
+.input-container input:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+.input-container button {
+    padding: 12px 24px; background: linear-gradient(135deg, #2563EB 0%, #3B82F6 100%);
+    color: white; border: none; border-radius: 12px; font-size: 0.9rem;
+    font-weight: 600; cursor: pointer; white-space: nowrap;
+    transition: all 0.2s;
+}
+.input-container button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
+.input-container button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+/* 加载 */
+.loading { display: flex; align-items: center; gap: 8px; color: #64748B; font-size: 0.85rem; }
+.spinner { width: 16px; height: 16px; border: 2px solid #DBEAFE; border-top-color: #3B82F6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error { color: #DC2626; font-size: 0.85rem; padding: 8px; }
+.toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: #1E293B; color: white; padding: 8px 20px; border-radius: 10px;
+    font-size: 0.85rem; z-index: 999; opacity: 0; transition: opacity 0.3s;
+}
+.toast.show { opacity: 1; }
+
+@media (max-width: 768px) {
+    .sidebar { display: none; }
+    .header { padding: 10px 16px; }
+    .chat-area { padding: 12px; }
+    .message-bubble { max-width: 95%; font-size: 0.85rem; }
+    .input-area { padding: 10px 12px; }
+}
+</style>
+</head>
+<body>
+
+<div class="sidebar" id="sidebar">
+    <div class="logo">
+        <img src="/assets/1.png" alt="图标">
+        <div>
+            <div class="title">知识库AI</div>
+            <div class="subtitle">基于 RAG 的智能问答系统</div>
+        </div>
+    </div>
+
+    <div class="sidebar-section">
+        <h3>📊 知识库概览</h3>
+        <div class="stats">
+            <div class="stat-card"><div class="num" id="chunk-count">-</div><div class="label">文档片段</div></div>
+            <div class="stat-card"><div class="num" id="cat-count">-</div><div class="label">分类</div></div>
+        </div>
+        <div class="cat-tags" id="cat-tags"></div>
+    </div>
+
+    <hr>
+
+    <div class="sidebar-section">
+        <h3>🔍 文件检索</h3>
+        <div class="file-search">
+            <input type="text" id="file-search-input" placeholder="输入文件名关键词..." oninput="searchFiles()">
+            <select id="file-cat-filter" onchange="searchFiles()" style="width:100%;margin-top:6px;padding:6px 8px;border:1px solid #DBEAFE;border-radius:8px;font-size:0.8rem;font-family:inherit;outline:none;">
+                <option value="全部">全部</option>
+            </select>
+            <div class="file-result" id="file-result"></div>
+        </div>
+    </div>
+
+    <hr>
+
+    <div class="sidebar-section settings">
+        <h3>🤖 模型选择</h3>
+        <select id="model-select" style="width:100%;padding:8px 10px;border:1px solid #DBEAFE;border-radius:10px;font-size:0.85rem;font-family:inherit;outline:none;background:rgba(255,255,255,0.9);">
+            <option value="">加载中...</option>
+        </select>
+    </div>
+
+    <hr>
+
+    <div class="sidebar-section settings">
+        <h3>⚙️ 显示设置</h3>
+        <label>显示结果数: <span id="top-k-label">5</span></label>
+        <input type="range" id="top-k" min="1" max="10" value="5" oninput="document.getElementById('top-k-label').textContent=this.value">
+        <label style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+            <input type="checkbox" id="show-detail" checked> 显示详细来源
+        </label>
+    </div>
+
+    <hr>
+
+    <button class="action-btn" onclick="rebuildIndex()">🔄 重建索引</button>
+
+    <div class="sidebar-footer">
+        <div>💡 模型: <span id="model-name">Kimi-K2.5</span></div>
+        <div id="file-count">📁 文件: -</div>
+    </div>
+</div>
+
+<div class="main">
+    <div class="header">
+        <img src="/assets/1.png" style="width:36px;height:36px;border-radius:8px;" alt="图标">
+        <h1>知识库AI 智能问答</h1>
+    </div>
+
+    <div class="chat-area" id="chat-area">
+        <div class="welcome-card" id="welcome-card">
+            <div class="icon">🔬</div>
+            <h2>欢迎使用知识库AI</h2>
+            <p>您可以提问关于实验室安全、化学品管理、设备操作规程等问题</p>
+            <div class="tags">
+                <span>🧪 实验室安全</span>
+                <span>🧴 化学品管理</span>
+                <span>⚙️ 设备操作</span>
+                <span>📋 检查记录</span>
+                <span>📜 政策法规</span>
+                <span>🏷️ 安全标识</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="input-area">
+        <div class="input-container">
+            <input type="text" id="question-input" placeholder="请输入您的安全培训相关问题..."
+                   autofocus onkeydown="if(event.key==='Enter') sendQuestion()">
+            <button id="send-btn" onclick="sendQuestion()">发送</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== 初始化 =====
+let allFiles = [];
+
+window.onload = function() {
+    loadStats();
+    loadFiles();
+    loadModels();
+};
+
+function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = 'toast show';
+    setTimeout(() => t.className = 'toast', 2000);
+}
+
+// ===== 知识库统计 =====
+function loadStats() {
+    fetch('/stats')
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('chunk-count').textContent = data.chunks || 0;
+        document.getElementById('cat-count').textContent = data.category_count || 0;
+        const tags = document.getElementById('cat-tags');
+        tags.innerHTML = (data.categories || []).map(c => `<span class="cat-tag">${c}</span>`).join('');
+    })
+    .catch(() => {});
+}
+
+// ===== 加载模型列表 =====
+function loadModels() {
+    fetch('/models')
+    .then(r => r.json())
+    .then(data => {
+        const sel = document.getElementById('model-select');
+        sel.innerHTML = data.models.map(m =>
+            `<option value="${m.key}" ${m.is_default ? 'selected' : ''}>${m.name}</option>`
+        ).join('');
+        // 更新底部模型名称
+        updateModelName();
+    })
+    .catch(() => {
+        document.getElementById('model-select').innerHTML = '<option value="">加载失败</option>';
+    });
+}
+
+// 模型切换时更新底部
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(() => {
+        const sel = document.getElementById('model-select');
+        if (sel) {
+            sel.addEventListener('change', updateModelName);
+        }
+    }, 100);
+});
+
+function updateModelName() {
+    const sel = document.getElementById('model-select');
+    const nameEl = document.getElementById('model-name');
+    if (sel && nameEl) {
+        const selected = sel.options[sel.selectedIndex];
+        nameEl.textContent = selected ? selected.text : '未知';
+    }
+}
+
+// ===== 文件检索 =====
+function loadFiles() {
+    fetch('/files')
+    .then(r => r.json())
+    .then(data => {
+        allFiles = data.files || [];
+        document.getElementById('file-count').textContent = '📁 文件: ' + allFiles.length;
+        const cats = ['全部', ...new Set(allFiles.map(f => f.category))];
+        const sel = document.getElementById('file-cat-filter');
+        sel.innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+        searchFiles();
+    })
+    .catch(() => {});
+}
+
+function searchFiles() {
+    const q = document.getElementById('file-search-input').value.toLowerCase();
+    const cat = document.getElementById('file-cat-filter').value;
+    let filtered = allFiles;
+    if (q) filtered = filtered.filter(f => f.filename.toLowerCase().includes(q));
+    if (cat !== '全部') filtered = filtered.filter(f => f.category === cat);
+    const el = document.getElementById('file-result');
+    if (filtered.length === 0) {
+        el.innerHTML = '<div class="file-info">没有匹配的文件</div>';
+        return;
+    }
+    el.innerHTML = '<div class="file-info">找到 ' + filtered.length + ' 个文件</div>';
+    filtered.slice(0, 30).forEach(f => {
+        const a = document.createElement('a');
+        a.className = 'file-item';
+        a.href = '/download-file?path=' + encodeURIComponent(f.filepath);
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.innerHTML = `📂 ${f.filename} <span class="cat-badge">${f.category}</span>`;
+        el.appendChild(a);
+    });
+    if (filtered.length > 30) {
+        const more = document.createElement('div');
+        more.className = 'file-info';
+        more.textContent = '... 还有 ' + (filtered.length - 30) + ' 个文件未显示';
+        el.appendChild(more);
+    }
+}
+
+function openFileInTab(path) {
+    const a = document.createElement('a');
+    a.href = '/download-file?path=' + encodeURIComponent(path);
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.click();
+}
+function openFile(path) {
+    openFileInTab(path);
+}
+
+// ===== 重建索引 =====
+function rebuildIndex() {
+    if (!confirm('确定要重建索引吗？这需要一些时间。')) return;
+    showToast('正在重建索引...');
+    fetch('/rebuild', {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            showToast('重建完成！已索引 ' + data.count + ' 个片段');
+            loadStats();
+        } else {
+            showToast('重建失败: ' + (data.error || ''));
+        }
+    })
+    .catch(() => showToast('重建失败'));
+}
+
+// ===== 问答 =====
+function addMessage(role, content, matchType) {
+    const welcome = document.getElementById('welcome-card');
+    if (welcome) welcome.remove();
+    const div = document.createElement('div');
+    div.className = 'message ' + role;
+    const label = document.createElement('div');
+    label.className = 'message-label';
+    label.textContent = role === 'user' ? '你' : '知识库AI';
+    div.appendChild(label);
+    const bubble = document.createElement('div');
+    bubble.className = 'message-bubble';
+    bubble.innerHTML = content.replace(/\n/g, '<br>');
+    div.appendChild(bubble);
+    document.getElementById('chat-area').appendChild(div);
+    document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
+    return div;
+}
+
+function addSources(sources, matchType) {
+    if (!sources || sources.length === 0) return;
+    const details = document.createElement('details');
+    details.className = 'sources';
+    const tag = {exact: '🔍 精确匹配', vector: '📊 语义匹配', web_search: '🌐 网络搜索'}[matchType] || '📎';
+    const summary = document.createElement('summary');
+    summary.textContent = tag + ' 来源文件 (' + sources.length + ' 个)';
+    details.appendChild(summary);
+    const seen = new Set();
+    sources.forEach((s, i) => {
+        const key = s.relpath || s.filepath || '';
+        if (seen.has(key)) return;
+        seen.add(key);
+        const item = document.createElement('div');
+        item.className = 'source-item';
+        item.innerHTML = `
+            <div class="filename">📄 ${s.filename}</div>
+            <div class="meta">分类: ${s.category} | 相关度: ${s.score.toFixed(3)} | 路径: <code>${s.relpath}</code></div>
+            ${s.snippet ? '<div class="snippet">' + s.snippet + '</div>' : ''}
+            <button class="open-btn" onclick="openFileInTab(this.dataset.path)" data-path="${s.filepath}">📂 打开文件</button>
+        `;
+        details.appendChild(item);
+    });
+    document.getElementById('chat-area').appendChild(details);
+    document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
+}
+
+function addLoading() {
+    const div = document.createElement('div');
+    div.className = 'message assistant';
+    div.id = 'loading-msg';
+    div.innerHTML = '<div class="message-bubble loading"><div class="spinner"></div>🔍 正在检索知识库并生成回答...</div>';
+    document.getElementById('chat-area').appendChild(div);
+    document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
+}
+
+function removeLoading() {
+    const el = document.getElementById('loading-msg');
+    if (el) el.remove();
+}
+
+function sendQuestion() {
+    const q = document.getElementById('question-input').value.trim();
+    if (!q) return;
+    document.getElementById('question-input').value = '';
+    document.getElementById('send-btn').disabled = true;
+    addMessage('user', q);
+    addLoading();
+    const topK = parseInt(document.getElementById('top-k').value);
+    const model = document.getElementById('model-select').value;
+    const body = {question: q, top_k: topK};
+    if (model) body.model = model;
+    fetch('/ask', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+    })
+    .then(r => r.json())
+    .then(data => {
+        removeLoading();
+        if (data.error) { addMessage('assistant', '❌ ' + data.error); return; }
+        addMessage('assistant', data.answer, data.match_type);
+        if (data.sources && data.sources.length > 0) {
+            addSources(data.sources, data.match_type);
+        }
+    })
+    .catch(err => {
+        removeLoading();
+        addMessage('assistant', '❌ 请求失败: ' + err.message);
+    })
+    .finally(() => { document.getElementById('send-btn').disabled = false; });
+}
+</script>
+</body>
+</html>

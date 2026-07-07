@@ -1,0 +1,38 @@
+# 安全培训 RAG 知识库智能体 — Flask 配置
+llm:
+  default_model: "minimax-25"
+  models:
+    kimi-k2.5:
+      name: "Kimi-K2.5"
+      api_base: "http://10.2.39.3:1025/v1"
+      api_key: "EMPTY"
+      model: "Kimi-K2.5"
+      temperature: 0.3
+      max_tokens: 1024
+    minimax-25:
+      name: "MiniMax-25"
+      api_base: "http://10.2.39.6:20004/v1"
+      api_key: "EMPTY"
+      model: "minimax25"
+      temperature: 0.8
+      max_tokens: 512
+
+embedding:
+  model_name: "BAAI/bge-small-zh-v1.5"
+  device: "cpu"
+  hf_mirror: "https://hf-mirror.com"
+
+documents:
+  knowledge_base: "D:\\安全培训\\安全培训知识库"
+  supported_extensions: [".pdf", ".doc", ".docx", ".pptx", ".xlsx", ".xls", ".txt"]
+  chunk: {size: 256, overlap: 32}
+
+vector_store:
+  type: "chroma"
+  persist_directory: "D:\\safety-rag\\data\\chroma_db"
+  collection_name: "safety_knowledge"
+  retrieval: {top_k: 3, relevance_threshold: 0.0}
+
+server:
+  host: "0.0.0.0"
+  port: 8008
