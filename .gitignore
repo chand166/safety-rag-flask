@@ -27,3 +27,9 @@ logs/
 # Package
 *.tar.gz
 *.zip
+# Runtime
+ocr_venv/
+temp_scan.png
+temp_scan2.png
+*.log
+
