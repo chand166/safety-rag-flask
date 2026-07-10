@@ -276,8 +276,14 @@ body {
         <label>显示结果数: <span id="top-k-label">5</span></label>
         <input type="range" id="top-k" min="1" max="10" value="5" oninput="document.getElementById('top-k-label').textContent=this.value">
         <label style="display:flex;align-items:center;gap:6px;margin-top:6px;">
-            <input type="checkbox" id="show-detail" checked> 显示详细来源
-        </label>
+                    <input type="checkbox" id="show-detail" checked> 显示详细来源
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-size:0.82rem;color:#475569;">
+                    <input type="checkbox" id="web-search-toggle" checked
+                           onchange="document.getElementById('web-search-label').textContent=this.checked?'开':'闭'"
+                           style="width:16px;height:16px;accent-color:#2563EB;cursor:pointer;">
+                    <span>🌐 联网搜索: <span id="web-search-label">开</span></span>
+                </label>
     </div>
 
     <hr>
@@ -689,8 +695,9 @@ function sendQuestion() {
     const topK = parseInt(document.getElementById('top-k').value);
     const model = document.getElementById('model-select').value;
     const body = {question: q, top_k: topK};
-    if (model) body.model = model;
-    if (currentConversationId) body.conversation_id = currentConversationId;
+        if (model) body.model = model;
+        if (currentConversationId) body.conversation_id = currentConversationId;
+        body.web_search_enabled = document.getElementById('web-search-toggle').checked;
     fetch('/ask', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),

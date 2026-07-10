@@ -101,9 +101,11 @@ def ask():
 
     top_k = data.get("top_k", 5)
     model = data.get("model")
+    web_search_enabled = data.get("web_search_enabled", True)
 
     try:
-        result = generate_answer(question, top_k=top_k, model=model)
+        result = generate_answer(question, top_k=top_k, model=model,
+                                  web_search_enabled=web_search_enabled)
 
         # ===== 保存到历史记录 =====
         db = get_db()
@@ -147,7 +149,7 @@ def ask():
             "conversation_id": conversation_id,
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+            return jsonify({"error": str(e)}), 500
 
 
 # ============================================================

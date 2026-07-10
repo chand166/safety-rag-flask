@@ -245,8 +245,17 @@ def _clean_answer(text: str) -> str:
 # ============================================================
 
 def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
-                    model: str = None) -> Dict:
-    """生成 RAG 回答（混合搜索）。"""
+                    model: str = None, web_search_enabled: bool = True) -> Dict:
+    """生成 RAG 回答（混合搜索）。
+    
+    搜索策略（保护本地数据隐私）：
+    1. 优先本地知识库检索（向量 + 精确匹配）
+    2. 本地有结果 → 直接返回，绝不联网
+    3. 本地无结果 + web_search_enabled=True → 联网搜索
+    4. 本地无结果 + web_search_enabled=False → 模型自身知识
+    
+    注意：联网搜索时只发送用户问题，绝不发送本地文档内容，避免数据泄露。
+    """
     llm = get_llm(model_key=model)
     system_prompt = SYSTEM_PROMPT + "\n\n重要：只输出最终答案，严禁输出任何思考过程。"
 
@@ -314,36 +323,40 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
         return {"question": question, "answer": answer, "sources": sources,
                 "from_kb": True, "match_type": "vector"}
 
-    # ---- 2. 知识库无结果 — 网络搜索补充 ----
-    from src.web_search import web_search, format_search_context
-    web_results = web_search(question, max_results=5)
-    if web_results and "error" not in web_results[0]:
-        context = format_search_context(web_results)
-        system_prompt = "你是一个知识库AI助手。以下是从互联网搜索到的相关信息，请基于这些信息回答用户的问题。如果信息不足，可以补充你的知识。用中文回答，简洁明了。"
-        user_msg = f"互联网搜索结果：\n{context}\n\n用户问题：{question}"
-        answer = llm.chat([
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_msg},
-        ])
-        answer = _clean_answer(answer)
-        sources = []
-        for r in web_results:
-            sources.append({
-                "filename": r["title"],
-                "relpath": r["url"],
-                "filepath": r["url"],
-                "category": "网络搜索",
-                "score": 0,
-                "snippet": r["snippet"],
-            })
-        return {"question": question, "answer": answer, "sources": sources,
-                "from_kb": False, "match_type": "web_search"}
+    # ---- 2. 知识库无结果 — 网络搜索补充（仅在开启时） ----
+    if web_search_enabled:
+        from src.web_search import web_search, format_search_context
+        web_results = web_search(question, max_results=5)
+        if web_results and "error" not in web_results[0]:
+            context = format_search_context(web_results)
+            system_prompt = "你是一个知识库AI助手。以下是从互联网搜索到的相关信息，请基于这些信息回答用户的问题。如果信息不足，可以补充你的知识。用中文回答，简洁明了。"
+            user_msg = f"互联网搜索结果：\n{context}\n\n用户问题：{question}"
+            answer = llm.chat([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ])
+            answer = _clean_answer(answer)
+            sources = []
+            for r in web_results:
+                sources.append({
+                    "filename": r["title"],
+                    "relpath": r["url"],
+                    "filepath": r["url"],
+                    "category": "网络搜索",
+                    "score": 0,
+                    "snippet": r["snippet"],
+                })
+            return {"question": question, "answer": answer, "sources": sources,
+                    "from_kb": False, "match_type": "web_search"}
 
-    # ---- 3. 网络搜索也失败 — LLM 自身知识 ----
+    # ---- 3. 知识库无结果，联网搜索未开启或失败 — LLM 自身知识 ----
+    note = ""
+    if not web_search_enabled:
+        note = "（联网搜索已关闭）"
     answer = llm.chat([
         {"role": "system", "content": "你是一个安全培训助手。直接给出最终答案，不要输出思考过程。"},
         {"role": "user", "content": f"用户问题：{question}\n\n知识库中未检索到相关文档，请基于你的知识回答。"},
     ])
     answer = _clean_answer(answer)
-    return {"question": question, "answer": f"{answer}\n\n⚠️ 说明：知识库中未检索到相关文档，以上回答基于模型自身知识。",
+    return {"question": question, "answer": f"{answer}\n\n⚠️ 说明：知识库中未检索到相关文档{note}，以上回答基于模型自身知识。",
             "sources": [], "from_kb": False, "match_type": "fallback"}
