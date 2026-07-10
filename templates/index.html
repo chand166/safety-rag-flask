@@ -323,6 +323,17 @@ body {
     <button class="action-btn" onclick="rebuildIndex()">🔄 重建索引</button>
 
     <div class="sidebar-footer">
+        <details style="font-size:0.75rem;color:#94A3B8;margin-bottom:8px;cursor:pointer;">
+            <summary style="outline:none;">📖 使用说明</summary>
+            <div style="margin-top:6px;line-height:1.5;color:#64748B;">
+                <b>搜索规则</b>：先查本地知识库，有结果直接返回（不联网）；
+                本地无结果或匹配质量低时，按联网开关状态决定是否联网搜索。<br>
+                <b>来源标识</b>：📄 知识库—本地文档；🌐 网络—联网搜索；
+                💡 模型—AI自身知识（联网关闭或搜索失败）。<br>
+                <b>隐私</b>：本地文档不发送到网络；联网搜索仅发送问题本身。<br>
+                <b>历史</b>：对话自动保存，刷新不丢失。可新建/切换/删除对话。
+            </div>
+        </details>
         <div>💡 模型: <span id="model-name">Kimi-K2.5</span></div>
         <div id="file-count">📁 文件: -</div>
     </div>
