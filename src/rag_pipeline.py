@@ -168,33 +168,58 @@ _THINK_PREFIXES = (
 
 def _clean_answer(text: str) -> str:
     """去掉 LLM 输出的推理过程，只保留最终回答。"""
+    original = text
 
-    # MiniMax 使用 HTML 标签： think...<response>...
-
-    # 1. 有 <response> → 去掉  think...<response> 块
+    # 1. 处理各种推理标签格式
+    # MiniMax: think...<response>...
     if '<response>' in text:
         text = re.sub(r'.*?<response>\s*', '', text, flags=re.DOTALL).strip()
-    elif '  think>' in text:
-        # 无 response → 去掉  think 块
-        text = re.sub(r'.*?  think>', '', text, flags=re.DOTALL).strip()
+    # 带标签的 think 块
+    text = re.sub(r'.*?think>\s*', '', text, flags=re.DOTALL).strip()
+    # 开头的 "thinking" 无标签
+    text = re.sub(r'^thinking\s*', '', text, flags=re.IGNORECASE).strip()
 
-    # 2. 强力后备：如果开头还是  think，去掉第一行
-    lines = text.strip().split('\n')
-    while lines and '  think>' in lines[0]:
-        lines = lines[1:]
-    text = '\n'.join(lines).strip()
-    text = re.sub(r'^答案[：:]\s*', '', text).strip()
+    # 2. 查找 "答案：" 或 "回答：" 作为最终回答的分隔符
+    markers = ['答案：', '答案:', '回答：', '回答:', '答：', '答:']
+    for m in markers:
+        if m in text:
+            # 取最后一个出现的位置（避免前面的思考内容中的"答案"）
+            idx = text.rfind(m)
+            after = text[idx + len(m):].strip()
+            if len(after) > 10:  # 确保有实际内容
+                text = after
+                break
 
-    # 3. 去掉常见的思考前缀
+    # 3. 如果文本还很⻓（>200字）且包含思考痕迹，进一步清理
+    if len(text) > 200:
+        lines = [l.strip() for l in text.split('\n') if l.strip()]
+        # 找到第一个看起来像实际回答的行
+        thinking_patterns = re.compile(
+            r'^(用户|让我|这[是个]|从文档|在文档|查看|搜索|基于|首先|第一|'
+            r'综合|所以|因此|综上|回答|答案|文档中|文档1|文档2|文档[0-9]|'
+            r'虽然|不过|严格|实际|让我再|好的|好[的，]|是的[，，]|'
+            r'根据.*文档|从.*来看|在.*中|第[一二三]步|接下来|最后)'
+        )
+        filtered = []
+        for line in lines:
+            if not filtered and thinking_patterns.match(line):
+                continue  # 跳过开头的思考行
+            filtered.append(line)
+        if filtered:
+            text = '\n'.join(filtered)
+
+    # 4. 去掉开头残留的"答案：""回答："等前缀
+    text = re.sub(r'^[答案回答答][：:]\s*', '', text).strip()
+
+    # 5. 去掉常见的思考前缀
     for prefix in _THINK_PREFIXES:
         if text.startswith(prefix):
             text = text[len(prefix):].strip()
             break
 
-    # 4. 去掉 "回答：" 前缀
-    for marker in ["回答：", "回答:"]:
-        if text.startswith(marker):
-            text = text[len(marker):].strip()
+    # 6. 如果内容太短，回退到原始文本
+    if len(text) < 20 and len(original) > 50:
+        text = original
 
     # 5. 检查是否还有思考内容残留：如果内容以 "XX是"、"XX指" 的句式开头
     #    且后面跟了很长的解释，这是正常的。保留。
@@ -228,20 +253,36 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
     # ---- 0. 查询扩展（缩写 → 全称，提高检索命中率） ----
     search_query = _expand_query(question)
 
-    # ---- 1. 语义检索（自带相关性过滤） ----
+    # ---- 1. 语义检索 ----
     vector_results = vector_search(search_query, top_k=top_k)
     has_relevant = any(r["score"] < 0.45 for r in vector_results) if vector_results else False
 
+    # ---- 2. 精确匹配（无论向量结果如何都执行） ----
+    exact_results = exact_search(search_query, max_files=top_k)
+
+    # ---- 3. 合并检索结果 ----
+    all_docs = []
+    seen_paths = set()
+
     if vector_results and has_relevant:
-        # 精确匹配补充（使用扩展后的查询）
-        exact_results = exact_search(search_query, max_files=top_k)
-        all_docs = list(vector_results)
-        seen_paths = {r["relpath"] for r in vector_results}
+        # 向量结果优先（语义相关度高）
+        for r in vector_results:
+            key = r["relpath"]
+            if key not in seen_paths:
+                all_docs.append(r)
+                seen_paths.add(key)
+        # 精确匹配补充（追加未覆盖的文档）
         for r in exact_results:
             if r["relpath"] not in seen_paths:
                 all_docs.append(r)
                 seen_paths.add(r["relpath"])
+    elif exact_results:
+        # 向量结果不够相关，但精确匹配有命中 → 用精确匹配结果
+        all_docs = exact_results
+        seen_paths = {r["relpath"] for r in exact_results}
 
+    if all_docs:
+        # 构建上下文
         context_parts = []
         for i, r in enumerate(all_docs, 1):
             text = r.get("chunk_text") or r.get("snippet", "")
