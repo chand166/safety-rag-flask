@@ -207,31 +207,6 @@ body {
 }
 .input-container button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
 .input-container button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-/* 联网搜索开关 — 自定义 toggle */
-.web-search-label {
-    display: flex; align-items: center; gap: 6px; cursor: pointer;
-    font-size: 0.82rem; color: #64748B; user-select: none;
-    padding: 0 4px;
-}
-.web-search-label input { display: none; }
-.web-search-label .toggle-track {
-    width: 38px; height: 22px; background: #CBD5E1; border-radius: 11px;
-    position: relative; transition: background 0.25s; flex-shrink: 0;
-}
-.web-search-label .toggle-thumb {
-    width: 18px; height: 18px; background: #fff; border-radius: 50%;
-    position: absolute; top: 2px; left: 2px; transition: left 0.25s;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-}
-.web-search-label input:checked + .toggle-track {
-    background: linear-gradient(135deg, #2563EB, #3B82F6);
-}
-.web-search-label input:checked + .toggle-track .toggle-thumb {
-    left: 18px;
-}
-.web-search-label .toggle-text {
-    font-size: 0.82rem; color: #64748B; white-space: nowrap;
-}
 
 /* 加载 */
 .loading { display: flex; align-items: center; gap: 8px; color: #64748B; font-size: 0.85rem; }
@@ -326,11 +301,8 @@ body {
         <details style="font-size:0.75rem;color:#94A3B8;margin-bottom:8px;cursor:pointer;">
             <summary style="outline:none;">📖 使用说明</summary>
             <div style="margin-top:6px;line-height:1.5;color:#64748B;">
-                <b>搜索规则</b>：先查本地知识库，有结果直接返回（不联网）；
-                本地无结果或匹配质量低时，按联网开关状态决定是否联网搜索。<br>
-                <b>来源标识</b>：📄 知识库—本地文档；🌐 网络—联网搜索；
-                💡 模型—AI自身知识（联网关闭或搜索失败）。<br>
-                <b>隐私</b>：本地文档不发送到网络；联网搜索仅发送问题本身。<br>
+                <b>仅本地知识库</b>：回答完全基于已收录文档，不联网，不调用模型自身知识。<br>
+                <b>来源标识</b>：📄 知识库—本地文档。<br>
                 <b>历史</b>：对话自动保存，刷新不丢失。可新建/切换/删除对话。
             </div>
         </details>
@@ -365,12 +337,7 @@ body {
             <div class="input-container">
                 <input type="text" id="question-input" placeholder="请输入您的安全培训相关问题..."
                        autofocus onkeydown="if(event.key==='Enter') sendQuestion()">
-                <label class="web-search-label" title="联网搜索开关">
-                                <input type="checkbox" id="web-search-toggle" checked
-                                       onchange="document.getElementById('toggle-text').textContent=this.checked?'联网开':'联网关'">
-                                <div class="toggle-track"><div class="toggle-thumb"></div></div>
-                                <span class="toggle-text" id="toggle-text">联网开</span>
-                            </label>
+
                 <button id="send-btn" onclick="sendQuestion()">发送</button>
             </div>
         </div>
@@ -772,8 +739,7 @@ function sendQuestion() {
     const body = {question: q, top_k: topK};
         if (model) body.model = model;
         if (currentConversationId) body.conversation_id = currentConversationId;
-        body.web_search_enabled = document.getElementById('web-search-toggle').checked;
-    body.user_id = getUserId();
+        body.user_id = getUserId();
     fetch('/ask', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),

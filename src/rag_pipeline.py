@@ -245,18 +245,8 @@ def _clean_answer(text: str) -> str:
 # ============================================================
 
 def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
-                    model: str = None, web_search_enabled: bool = True,
-                    conversation_history: list = None) -> Dict:
-    """生成 RAG 回答（混合搜索）。
-    
-    搜索策略（保护本地数据隐私）：
-    1. 优先本地知识库检索（向量 + 精确匹配）
-    2. 本地有结果 → 直接返回，绝不联网
-    3. 本地无结果 + web_search_enabled=True → 联网搜索
-    4. 本地无结果 + web_search_enabled=False → 模型自身知识
-    
-    注意：联网搜索时只发送用户问题，绝不发送本地文档内容，避免数据泄露。
-    """
+                    model: str = None, conversation_history: list = None) -> Dict:
+    """生成 RAG 回答（仅本地知识库，不联网，不调用模型自身知识）。"""
     llm = get_llm(model_key=model)
     system_prompt = SYSTEM_PROMPT + "\n\n重要：只输出最终答案，严禁输出任何思考过程。"
 
@@ -267,100 +257,43 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
             role = "assistant" if msg["role"] == "assistant" else "user"
             history_messages.append({"role": role, "content": msg["content"]})
 
-    # ---- 0. 查询扩展（缩写 → 全称，提高检索命中率） ----
+    # ---- 查询扩展 ----
     search_query = _expand_query(question)
 
-    # ---- 1. 语义检索 ----
+    # ---- 语义检索 ----
     vector_results = vector_search(search_query, top_k=top_k)
     has_relevant = any(r["score"] < 0.45 for r in vector_results) if vector_results else False
 
-    # ---- 2. 精确匹配（无论向量结果如何都执行） ----
+    # ---- 精确匹配 ----
     exact_results = exact_search(search_query, max_files=top_k)
 
-    # ---- 3. 合并检索结果（精确匹配优先，无精确匹配时尝试联网） ----
+    # ---- 合并本地结果 ----
     all_docs = []
     seen_paths = set()
 
-    # 精确匹配有命中 → 检查匹配质量
     if exact_results:
-            # 计算最佳匹配质量（匹配关键词占比）
-            best_score = max(r.get("score", 0) for r in exact_results)
-            # 匹配质量高（>50%关键词命中）→ 本地文档可信，直接用
-            if best_score > 0.5:
-                all_docs = exact_results
-                seen_paths = {r["relpath"] for r in exact_results}
-                if vector_results and has_relevant:
-                    for r in vector_results:
-                        if r["relpath"] not in seen_paths:
-                            all_docs.append(r)
-                            seen_paths.add(r["relpath"])
-            elif web_search_enabled:
-                # 匹配质量低（如只命中缩写，没命中内容词）→ 尝试联网搜索
-                from src.web_search import web_search, format_search_context
-                web_results = web_search(question, max_results=5)
-                if web_results and "error" not in web_results[0]:
-                    context = format_search_context(web_results)
-                    system_prompt = "你是一个知识库AI助手。以下是从互联网搜索到的相关信息，请基于这些信息回答用户的问题。如果信息不足，可以补充你的知识。用中文回答，简洁明了。"
-                    user_msg = f"互联网搜索结果：\n{context}\n\n用户问题：{question}"
-                    answer = llm.chat([
-                        {"role": "system", "content": system_prompt},
-                    ] + history_messages + [
-                        {"role": "user", "content": user_msg},
-                    ])
-                    answer = _clean_answer(answer)
-                    sources = []
-                    for r in web_results:
-                        sources.append({
-                            "filename": r["title"],
-                            "relpath": r["url"],
-                            "filepath": r["url"],
-                            "category": "网络搜索",
-                            "score": 0,
-                            "snippet": r["snippet"],
-                        })
-                    return {"question": question, "answer": answer, "sources": sources,
-                            "from_kb": False, "match_type": "web_search"}
-                # 联网搜索失败，回退到本地文档（虽然质量不高）
-                all_docs = exact_results
-                seen_paths = {r["relpath"] for r in exact_results}
+        best_score = max(r.get("score", 0) for r in exact_results)
+        if best_score > 0.5:
+            all_docs = exact_results
+            seen_paths = {r["relpath"] for r in exact_results}
+            if vector_results and has_relevant:
+                for r in vector_results:
+                    if r["relpath"] not in seen_paths:
+                        all_docs.append(r)
+                        seen_paths.add(r["relpath"])
+        else:
+            # 精确匹配质量低，用向量结果补充
+            if vector_results and has_relevant:
+                all_docs = list(vector_results)
+                seen_paths = {r["relpath"] for r in vector_results}
             else:
-                # 联网搜索关闭，用本地文档
                 all_docs = exact_results
                 seen_paths = {r["relpath"] for r in exact_results}
     elif vector_results and has_relevant:
-        # 只有语义匹配，没有精确匹配 → 文档可能只是沾边
-        # 如果联网搜索开启，先尝试联网搜索
-        if web_search_enabled:
-            from src.web_search import web_search, format_search_context
-            web_results = web_search(question, max_results=5)
-            if web_results and "error" not in web_results[0]:
-                context = format_search_context(web_results)
-                system_prompt = "你是一个知识库AI助手。以下是从互联网搜索到的相关信息，请基于这些信息回答用户的问题。如果信息不足，可以补充你的知识。用中文回答，简洁明了。"
-                user_msg = f"互联网搜索结果：\n{context}\n\n用户问题：{question}"
-                answer = llm.chat([
-                    {"role": "system", "content": system_prompt},
-                ] + history_messages + [
-                    {"role": "user", "content": user_msg},
-                ])
-                answer = _clean_answer(answer)
-                sources = []
-                for r in web_results:
-                    sources.append({
-                        "filename": r["title"],
-                        "relpath": r["url"],
-                        "filepath": r["url"],
-                        "category": "网络搜索",
-                        "score": 0,
-                        "snippet": r["snippet"],
-                    })
-                return {"question": question, "answer": answer, "sources": sources,
-                        "from_kb": False, "match_type": "web_search"}
-        # 联网搜索未开启或失败 → 用本地文档（虽然不精确）
         all_docs = list(vector_results)
         seen_paths = {r["relpath"] for r in vector_results}
 
     if all_docs:
-        # 构建上下文
         context_parts = []
         for i, r in enumerate(all_docs, 1):
             text = r.get("chunk_text") or r.get("snippet", "")
@@ -393,42 +326,7 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
         return {"question": question, "answer": answer, "sources": sources,
                 "from_kb": True, "match_type": "vector"}
 
-    # ---- 2. 知识库无结果 — 网络搜索补充（仅在开启时） ----
-    if web_search_enabled:
-        from src.web_search import web_search, format_search_context
-        web_results = web_search(question, max_results=5)
-        if web_results and "error" not in web_results[0]:
-            context = format_search_context(web_results)
-            system_prompt = "你是一个知识库AI助手。以下是从互联网搜索到的相关信息，请基于这些信息回答用户的问题。如果信息不足，可以补充你的知识。用中文回答，简洁明了。"
-            user_msg = f"互联网搜索结果：\n{context}\n\n用户问题：{question}"
-            answer = llm.chat([
-                {"role": "system", "content": system_prompt},
-            ] + history_messages + [
-                {"role": "user", "content": user_msg},
-            ])
-            answer = _clean_answer(answer)
-            sources = []
-            for r in web_results:
-                sources.append({
-                    "filename": r["title"],
-                    "relpath": r["url"],
-                    "filepath": r["url"],
-                    "category": "网络搜索",
-                    "score": 0,
-                    "snippet": r["snippet"],
-                })
-            return {"question": question, "answer": answer, "sources": sources,
-                    "from_kb": False, "match_type": "web_search"}
-
-    # ---- 3. 知识库无结果，联网搜索未开启或失败 — LLM 自身知识 ----
-    note = ""
-    if not web_search_enabled:
-        note = "（联网搜索已关闭）"
-    answer = llm.chat([
-        {"role": "system", "content": "你是一个安全培训助手。直接给出最终答案，不要输出思考过程。"},
-    ] + history_messages + [
-        {"role": "user", "content": f"用户问题：{question}\n\n知识库中未检索到相关文档，请基于你的知识回答。"},
-    ])
-    answer = _clean_answer(answer)
-    return {"question": question, "answer": f"{answer}\n\n⚠️ 说明：知识库中未检索到相关文档{note}，以上回答基于模型自身知识。",
+    # ---- 知识库无结果 — 直接返回未找到 ----
+    return {"question": question,
+            "answer": "文档中未找到相关信息。知识库仅包含已收录的文档内容，如需补充请联系管理员。",
             "sources": [], "from_kb": False, "match_type": "fallback"}

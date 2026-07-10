@@ -107,7 +107,6 @@ def ask():
 
     top_k = data.get("top_k", 5)
     model = data.get("model")
-    web_search_enabled = data.get("web_search_enabled", True)
 
     try:
         # 获取对话历史（最近6条消息，用于上下文理解）
@@ -123,7 +122,6 @@ def ask():
                 history.append({"role": r["role"], "content": r["content"]})
 
         result = generate_answer(question, top_k=top_k, model=model,
-                                  web_search_enabled=web_search_enabled,
                                   conversation_history=history)
 
         # ===== 保存到历史记录 =====
