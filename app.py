@@ -43,11 +43,17 @@ def init_db():
     db.execute("""
         CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT 'default',
             title TEXT NOT NULL DEFAULT '新对话',
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         )
     """)
+    # 兼容旧表：没有 user_id 列则添加
+    try:
+        db.execute("ALTER TABLE conversations ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default'")
+    except Exception:
+        pass
     db.execute("""
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,6 +176,7 @@ def ask():
 # ============================================================
 @app.route("/history")
 def list_conversations():
+    user_id = request.args.get("user_id", "default")
     db = get_db()
     rows = db.execute("""
         SELECT c.id, c.title, c.created_at, c.updated_at,
@@ -179,9 +186,10 @@ def list_conversations():
                    ''
                ) as preview
         FROM conversations c
+        WHERE c.user_id = ?
         ORDER BY c.updated_at DESC
         LIMIT 50
-    """).fetchall()
+    """, (user_id,)).fetchall()
     db.close()
     return jsonify([{
         "id": r["id"],
@@ -222,8 +230,9 @@ def get_conversation(conv_id):
 
 @app.route("/history/new", methods=["POST"])
 def new_conversation():
+    user_id = request.get_json().get("user_id", "default") if request.is_json else "default"
     db = get_db()
-    cursor = db.execute("INSERT INTO conversations (title) VALUES ('新对话')")
+    cursor = db.execute("INSERT INTO conversations (user_id, title) VALUES (?, '新对话')", (user_id,))
     conv_id = cursor.lastrowid
     db.commit()
     db.close()
@@ -255,10 +264,11 @@ def delete_conversation(conv_id):
 
 @app.route("/history/clear", methods=["POST"])
 def clear_history():
-    """删除所有对话"""
+    """删除当前用户的所有对话"""
+    user_id = request.get_json().get("user_id", "default") if request.is_json else "default"
     db = get_db()
-    db.execute("DELETE FROM messages")
-    db.execute("DELETE FROM conversations")
+    db.execute("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)", (user_id,))
+    db.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))
     db.commit()
     db.close()
     return jsonify({"status": "ok"})

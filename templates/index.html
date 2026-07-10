@@ -372,6 +372,16 @@ body {
 let allFiles = [];
 let currentConversationId = null;
 
+// 匿名用户ID（localStorage 持久化，隔离不同用户）
+function getUserId() {
+    let uid = localStorage.getItem('safety_rag_user_id');
+    if (!uid) {
+        uid = 'user_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+        localStorage.setItem('safety_rag_user_id', uid);
+    }
+    return uid;
+}
+
 window.onload = function() {
     loadStats();
     loadFiles();
@@ -506,7 +516,7 @@ function rebuildIndex() {
 
 // ===== 历史记录 =====
 function loadHistory() {
-    fetch('/history')
+    fetch('/history?user_id=' + getUserId())
     .then(r => r.json())
     .then(convs => {
         renderHistory(convs);
@@ -605,14 +615,14 @@ function switchConversation(convId, saveCurrent) {
 }
 
 function renderHistoryFromDom() {
-    fetch('/history')
+    fetch('/history?user_id=' + getUserId())
     .then(r => r.json())
     .then(convs => renderHistory(convs))
     .catch(() => {});
 }
 
 function newConversation() {
-    fetch('/history/new', {method: 'POST'})
+    fetch('/history/new', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: getUserId()})})
     .then(r => r.json())
     .then(data => {
         currentConversationId = data.id;
@@ -644,7 +654,7 @@ function deleteConversation(convId) {
 
     function deleteAllConversations() {
         if (!confirm('确定要删除所有对话吗？此操作不可恢复。')) return;
-        fetch('/history/clear', {method: 'POST'})
+        fetch('/history/clear', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: getUserId()})})
         .then(r => r.json())
         .then(() => {
             currentConversationId = null;
@@ -752,6 +762,7 @@ function sendQuestion() {
         if (model) body.model = model;
         if (currentConversationId) body.conversation_id = currentConversationId;
         body.web_search_enabled = document.getElementById('web-search-toggle').checked;
+    body.user_id = getUserId();
     fetch('/ask', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),
