@@ -138,6 +138,18 @@ body {
     border-bottom-left-radius: 4px;
 }
 .message-label { font-size: 0.75rem; color: #94A3B8; padding: 0 4px; }
+/* 不同来源的标签颜色 */
+.message.web_search .message-label { color: #D97706; }
+.message.fallback .message-label { color: #8B5CF6; }
+/* 不同来源的回答框颜色 */
+.message.web_search .message-bubble {
+    background: rgba(255,251,235,0.95); border-color: rgba(217,119,6,0.15);
+    border-left: 3px solid #F59E0B;
+}
+.message.fallback .message-bubble {
+    background: rgba(245,243,255,0.95); border-color: rgba(139,92,246,0.12);
+    border-left: 3px solid #8B5CF6;
+}
 
 /* 来源 */
 .sources { max-width: 800px; width: 100%; margin: 0 auto; }
@@ -655,10 +667,11 @@ function addMessage(role, content, matchType) {
     const welcome = document.getElementById('welcome-card');
     if (welcome) welcome.remove();
     const div = document.createElement('div');
-    div.className = 'message ' + role;
+    div.className = 'message ' + role + (matchType ? ' ' + matchType : '');
     const label = document.createElement('div');
     label.className = 'message-label';
-    label.textContent = role === 'user' ? '你' : '知识库AI';
+    const sourceTag = {vector: '📄 知识库', web_search: '🌐 网络', fallback: '💡 模型'}[matchType] || '知识库AI';
+    label.textContent = role === 'user' ? '你' : sourceTag;
     div.appendChild(label);
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
