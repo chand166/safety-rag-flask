@@ -104,8 +104,21 @@ def ask():
     web_search_enabled = data.get("web_search_enabled", True)
 
     try:
+        # 获取对话历史（最近6条消息，用于上下文理解）
+        history = []
+        if conversation_id:
+            db = get_db()
+            rows = db.execute(
+                "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 6",
+                (conversation_id,)
+            ).fetchall()
+            db.close()
+            for r in reversed(rows):
+                history.append({"role": r["role"], "content": r["content"]})
+
         result = generate_answer(question, top_k=top_k, model=model,
-                                  web_search_enabled=web_search_enabled)
+                                  web_search_enabled=web_search_enabled,
+                                  conversation_history=history)
 
         # ===== 保存到历史记录 =====
         db = get_db()

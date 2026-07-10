@@ -245,7 +245,8 @@ def _clean_answer(text: str) -> str:
 # ============================================================
 
 def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
-                    model: str = None, web_search_enabled: bool = True) -> Dict:
+                    model: str = None, web_search_enabled: bool = True,
+                    conversation_history: list = None) -> Dict:
     """生成 RAG 回答（混合搜索）。
     
     搜索策略（保护本地数据隐私）：
@@ -258,6 +259,13 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
     """
     llm = get_llm(model_key=model)
     system_prompt = SYSTEM_PROMPT + "\n\n重要：只输出最终答案，严禁输出任何思考过程。"
+
+    # ---- 对话历史（用于上下文理解） ----
+    history_messages = []
+    if conversation_history:
+        for msg in conversation_history[-6:]:
+            role = "assistant" if msg["role"] == "assistant" else "user"
+            history_messages.append({"role": role, "content": msg["content"]})
 
     # ---- 0. 查询扩展（缩写 → 全称，提高检索命中率） ----
     search_query = _expand_query(question)
@@ -295,6 +303,7 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
                 user_msg = f"互联网搜索结果：\n{context}\n\n用户问题：{question}"
                 answer = llm.chat([
                     {"role": "system", "content": system_prompt},
+                ] + history_messages + [
                     {"role": "user", "content": user_msg},
                 ])
                 answer = _clean_answer(answer)
@@ -328,6 +337,7 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
         user_msg = f"请基于以下文档内容回答用户的问题。\n\n文档内容：\n{context}\n\n用户问题：{question}"
         answer = llm.chat([
             {"role": "system", "content": system_prompt},
+        ] + history_messages + [
             {"role": "user", "content": user_msg},
         ])
         answer = _clean_answer(answer)
@@ -357,6 +367,7 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
             user_msg = f"互联网搜索结果：\n{context}\n\n用户问题：{question}"
             answer = llm.chat([
                 {"role": "system", "content": system_prompt},
+            ] + history_messages + [
                 {"role": "user", "content": user_msg},
             ])
             answer = _clean_answer(answer)
@@ -379,6 +390,7 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
         note = "（联网搜索已关闭）"
     answer = llm.chat([
         {"role": "system", "content": "你是一个安全培训助手。直接给出最终答案，不要输出思考过程。"},
+    ] + history_messages + [
         {"role": "user", "content": f"用户问题：{question}\n\n知识库中未检索到相关文档，请基于你的知识回答。"},
     ])
     answer = _clean_answer(answer)
