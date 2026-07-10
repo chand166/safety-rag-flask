@@ -71,6 +71,37 @@ body {
 .sidebar .action-btn:hover { background: rgba(37,99,235,0.05); border-color: #2563EB; }
 .sidebar-footer { font-size: 0.72rem; color: #94A3B8; margin-top: auto; }
 
+/* 历史记录 */
+.history-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.history-item {
+    display: flex; align-items: flex-start; gap: 2px; padding: 7px 10px;
+    border-radius: 8px; cursor: pointer; font-size: 0.82rem;
+    transition: background 0.15s; width: 100%; text-align: left;
+    border: none; background: transparent; font-family: inherit; color: #1E293B;
+    flex-direction: column;
+}
+.history-item:hover { background: rgba(37,99,235,0.06); }
+.history-item.active { background: rgba(37,99,235,0.1); border-left: 3px solid #2563EB; }
+.history-item .h-title {
+    font-weight: 600; font-size: 0.82rem; color: #1E293B; width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.history-item .h-meta { font-size: 0.65rem; color: #94A3B8; display: flex; gap: 8px; width: 100%; }
+.history-empty { font-size: 0.8rem; color: #94A3B8; text-align: center; padding: 12px; }
+/* 删除按钮 — hover 显示 */
+.history-item .h-meta { position: relative; }
+.history-item .h-del {
+    position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+    width: 20px; height: 20px; border-radius: 50%;
+    border: none; background: transparent;
+    color: #DC2626; font-size: 0.65rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: all 0.15s;
+    font-family: inherit; line-height: 1;
+}
+.history-item:hover .h-del { opacity: 0.6; }
+.history-item .h-del:hover { opacity: 1; background: rgba(220,38,38,0.08); }
+
 /* 主区域 */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .header {
@@ -209,6 +240,16 @@ body {
     <hr>
 
     <div class="sidebar-section">
+        <h3>📋 历史记录</h3>
+        <button class="action-btn" onclick="newConversation()" style="margin-bottom:6px;">➕ 新建对话</button>
+        <div id="history-list" class="history-list">
+            <div class="history-empty">加载中...</div>
+        </div>
+    </div>
+
+    <hr>
+
+    <div class="sidebar-section">
         <h3>🔍 文件检索</h3>
         <div class="file-search">
             <input type="text" id="file-search-input" placeholder="输入文件名关键词..." oninput="searchFiles()">
@@ -285,11 +326,13 @@ body {
 <script>
 // ===== 初始化 =====
 let allFiles = [];
+let currentConversationId = null;
 
 window.onload = function() {
     loadStats();
     loadFiles();
     loadModels();
+    loadHistory();
 };
 
 function showToast(msg) {
@@ -320,7 +363,6 @@ function loadModels() {
         sel.innerHTML = data.models.map(m =>
             `<option value="${m.key}" ${m.is_default ? 'selected' : ''}>${m.name}</option>`
         ).join('');
-        // 更新底部模型名称
         updateModelName();
     })
     .catch(() => {
@@ -328,7 +370,6 @@ function loadModels() {
     });
 }
 
-// 模型切换时更新底部
 document.addEventListener('DOMContentLoaded', function() {
     setTimeout(() => {
         const sel = document.getElementById('model-select');
@@ -419,6 +460,165 @@ function rebuildIndex() {
     .catch(() => showToast('重建失败'));
 }
 
+// ===== 历史记录 =====
+function loadHistory() {
+    fetch('/history')
+    .then(r => r.json())
+    .then(convs => {
+        renderHistory(convs);
+        // 自动加载最近一条会话
+        if (convs.length > 0) {
+            // 如果当前没有活跃会话，加载第一个
+            if (!currentConversationId) {
+                switchConversation(convs[0].id, false);
+            }
+        } else {
+            // 没有历史，显示欢迎卡片
+            showWelcome();
+        }
+    })
+    .catch(() => {
+        document.getElementById('history-list').innerHTML = '<div class="history-empty">加载失败</div>';
+    });
+}
+
+function renderHistory(convs) {
+    const el = document.getElementById('history-list');
+    if (!convs || convs.length === 0) {
+        el.innerHTML = '<div class="history-empty">暂无历史记录</div>';
+        return;
+    }
+    el.innerHTML = convs.map(c => {
+        const active = c.id === currentConversationId ? 'active' : '';
+        const time = formatTime(c.updated_at);
+        const preview = c.preview ? c.preview.slice(0, 50) : '';
+        const cleanTitle = c.title.replace(/['"]/g, '');
+        return `<div class="history-item ${active}" onclick="switchConversation(${c.id})" title="${preview}">
+            <div class="h-title">${c.title}</div>
+            <div class="h-meta">
+                <span>${time}</span>
+                <span>${c.msg_count} 条消息</span>
+                <button class="h-del" onclick="event.stopPropagation();deleteConversation(${c.id})" title="删除">✕</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function formatTime(t) {
+    if (!t) return '';
+    const d = new Date(t.replace(' ', 'T'));
+    const now = new Date();
+    const diff = (now - d) / 1000;
+    if (diff < 60) return '刚刚';
+    if (diff < 3600) return Math.floor(diff/60) + '分钟前';
+    if (diff < 86400) return Math.floor(diff/3600) + '小时前';
+    if (diff < 172800) return '昨天';
+    return (d.getMonth()+1)+'月'+d.getDate()+'日';
+}
+
+function switchConversation(convId, saveCurrent) {
+    if (saveCurrent !== false && currentConversationId) {
+        // 可选：保存当前会话状态
+    }
+    currentConversationId = convId;
+    // 清空聊天区域
+    const chat = document.getElementById('chat-area');
+    chat.innerHTML = '<div class="loading" style="justify-content:center;padding:20px;"><div class="spinner"></div> 加载中...</div>';
+
+    fetch('/history/' + convId)
+    .then(r => r.json())
+    .then(data => {
+        chat.innerHTML = '';
+        if (data.messages && data.messages.length > 0) {
+            data.messages.forEach(m => {
+                const div = document.createElement('div');
+                div.className = 'message ' + m.role;
+                const label = document.createElement('div');
+                label.className = 'message-label';
+                label.textContent = m.role === 'user' ? '你' : '知识库AI';
+                div.appendChild(label);
+                const bubble = document.createElement('div');
+                bubble.className = 'message-bubble';
+                bubble.innerHTML = m.content.replace(/\n/g, '<br>');
+                div.appendChild(bubble);
+                chat.appendChild(div);
+                // 如果有来源，渲染来源
+                if (m.sources && m.sources.length > 0) {
+                    addSources(m.sources, 'vector');
+                }
+            });
+        } else {
+            showWelcome();
+        }
+        chat.scrollTop = chat.scrollHeight;
+        // 更新历史列表高亮
+        renderHistoryFromDom();
+    })
+    .catch(() => {
+        chat.innerHTML = '';
+        showWelcome();
+    });
+}
+
+function renderHistoryFromDom() {
+    fetch('/history')
+    .then(r => r.json())
+    .then(convs => renderHistory(convs))
+    .catch(() => {});
+}
+
+function newConversation() {
+    fetch('/history/new', {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+        currentConversationId = data.id;
+        const chat = document.getElementById('chat-area');
+        chat.innerHTML = '';
+        showWelcome();
+        renderHistoryFromDom();
+        document.getElementById('question-input').focus();
+    })
+    .catch(() => showToast('创建失败'));
+}
+
+function deleteConversation(convId) {
+    if (!confirm('确定要删除这个对话吗？')) return;
+    fetch('/history/' + convId, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(() => {
+        if (currentConversationId === convId) {
+            currentConversationId = null;
+            const chat = document.getElementById('chat-area');
+            chat.innerHTML = '';
+            showWelcome();
+        }
+        renderHistoryFromDom();
+        showToast('已删除');
+    })
+    .catch(() => showToast('删除失败'));
+}
+
+function showWelcome() {
+    const chat = document.getElementById('chat-area');
+    const existing = document.getElementById('welcome-card');
+    if (existing) return;
+    chat.innerHTML = `
+        <div class="welcome-card" id="welcome-card">
+            <div class="icon">🔬</div>
+            <h2>欢迎使用知识库AI</h2>
+            <p>您可以提问关于实验室安全、化学品管理、设备操作规程等问题</p>
+            <div class="tags">
+                <span>🧪 实验室安全</span>
+                <span>🧴 化学品管理</span>
+                <span>⚙️ 设备操作</span>
+                <span>📋 检查记录</span>
+                <span>📜 政策法规</span>
+                <span>🏷️ 安全标识</span>
+            </div>
+        </div>
+    `;
+}
+
 // ===== 问答 =====
 function addMessage(role, content, matchType) {
     const welcome = document.getElementById('welcome-card');
@@ -490,6 +690,7 @@ function sendQuestion() {
     const model = document.getElementById('model-select').value;
     const body = {question: q, top_k: topK};
     if (model) body.model = model;
+    if (currentConversationId) body.conversation_id = currentConversationId;
     fetch('/ask', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),
@@ -498,10 +699,16 @@ function sendQuestion() {
     .then(data => {
         removeLoading();
         if (data.error) { addMessage('assistant', '❌ ' + data.error); return; }
+        // 更新当前会话ID（新会话时后端返回）
+        if (data.conversation_id) {
+            currentConversationId = data.conversation_id;
+        }
         addMessage('assistant', data.answer, data.match_type);
         if (data.sources && data.sources.length > 0) {
             addSources(data.sources, data.match_type);
         }
+        // 刷新历史列表
+        renderHistoryFromDom();
     })
     .catch(err => {
         removeLoading();

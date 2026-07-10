@@ -2,8 +2,11 @@
 # WSGI 入口: gunicorn app:app
 import os
 import sys
+import json
 import base64
+import sqlite3
 from pathlib import Path
+from datetime import datetime
 from functools import wraps
 
 from flask import Flask, render_template, request, jsonify, send_from_directory, send_file
@@ -24,6 +27,48 @@ app.config["JSON_AS_ASCII"] = False
 
 
 # ============================================================
+# 历史记录数据库
+# ============================================================
+DB_PATH = _PROJECT_ROOT / "data" / "chat_history.db"
+
+def get_db():
+    db = sqlite3.connect(str(DB_PATH))
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    return db
+
+def init_db():
+    os.makedirs(str(DB_PATH.parent), exist_ok=True)
+    db = get_db()
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL DEFAULT '新对话',
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            sources TEXT DEFAULT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        )
+    """)
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id)
+    """)
+    db.commit()
+    db.close()
+
+init_db()
+
+
+# ============================================================
 # 首页 — 聊天界面
 # ============================================================
 @app.route("/")
@@ -40,7 +85,7 @@ def index():
 
 
 # ============================================================
-# 问答 API
+# 问答 API（自动保存历史记录）
 # ============================================================
 @app.route("/ask", methods=["POST"])
 def ask():
@@ -49,6 +94,8 @@ def ask():
         return jsonify({"error": "请提供问题"}), 400
 
     question = data["question"].strip()
+    conversation_id = data.get("conversation_id")
+
     if not question:
         return jsonify({"error": "问题不能为空"}), 400
 
@@ -57,14 +104,138 @@ def ask():
 
     try:
         result = generate_answer(question, top_k=top_k, model=model)
+
+        # ===== 保存到历史记录 =====
+        db = get_db()
+        if not conversation_id:
+            cursor = db.execute(
+                "INSERT INTO conversations (title) VALUES (?)",
+                (question[:50],)
+            )
+            conversation_id = cursor.lastrowid
+        else:
+            conv = db.execute(
+                "SELECT title FROM conversations WHERE id = ?",
+                (conversation_id,)
+            ).fetchone()
+            if conv and conv["title"] == "新对话":
+                db.execute(
+                    "UPDATE conversations SET title = ? WHERE id = ?",
+                    (question[:50], conversation_id)
+                )
+
+        db.execute(
+            "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', ?)",
+            (conversation_id, question)
+        )
+        db.execute(
+            "INSERT INTO messages (conversation_id, role, content, sources) VALUES (?, 'assistant', ?, ?)",
+            (conversation_id, result["answer"], json.dumps(result.get("sources", []), ensure_ascii=False))
+        )
+        db.execute(
+            "UPDATE conversations SET updated_at = datetime('now','localtime') WHERE id = ?",
+            (conversation_id,)
+        )
+        db.commit()
+        db.close()
+
         return jsonify({
             "answer": result["answer"],
             "sources": result["sources"],
             "match_type": result.get("match_type", "vector"),
             "from_kb": result.get("from_kb", True),
+            "conversation_id": conversation_id,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ============================================================
+# 历史记录 API
+# ============================================================
+@app.route("/history")
+def list_conversations():
+    db = get_db()
+    rows = db.execute("""
+        SELECT c.id, c.title, c.created_at, c.updated_at,
+               (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as msg_count,
+               COALESCE(
+                   (SELECT content FROM messages WHERE conversation_id = c.id AND role = 'user' ORDER BY id LIMIT 1),
+                   ''
+               ) as preview
+        FROM conversations c
+        ORDER BY c.updated_at DESC
+        LIMIT 50
+    """).fetchall()
+    db.close()
+    return jsonify([{
+        "id": r["id"],
+        "title": r["title"],
+        "created_at": r["created_at"],
+        "updated_at": r["updated_at"],
+        "msg_count": r["msg_count"],
+        "preview": r["preview"][:80] if r["preview"] else ""
+    } for r in rows])
+
+
+@app.route("/history/<int:conv_id>")
+def get_conversation(conv_id):
+    db = get_db()
+    conv = db.execute("SELECT * FROM conversations WHERE id = ?", (conv_id,)).fetchone()
+    if not conv:
+        db.close()
+        return jsonify({"error": "会话不存在"}), 404
+    messages = db.execute(
+        "SELECT id, role, content, sources, created_at FROM messages WHERE conversation_id = ? ORDER BY id",
+        (conv_id,)
+    ).fetchall()
+    db.close()
+    return jsonify({
+        "id": conv["id"],
+        "title": conv["title"],
+        "created_at": conv["created_at"],
+        "updated_at": conv["updated_at"],
+        "messages": [{
+            "id": m["id"],
+            "role": m["role"],
+            "content": m["content"],
+            "sources": json.loads(m["sources"]) if m["sources"] else None,
+            "created_at": m["created_at"],
+        } for m in messages]
+    })
+
+
+@app.route("/history/new", methods=["POST"])
+def new_conversation():
+    db = get_db()
+    cursor = db.execute("INSERT INTO conversations (title) VALUES ('新对话')")
+    conv_id = cursor.lastrowid
+    db.commit()
+    db.close()
+    return jsonify({"id": conv_id, "title": "新对话", "messages": []})
+
+
+@app.route("/history/rename", methods=["POST"])
+def rename_conversation():
+    data = request.get_json()
+    if not data or "id" not in data or "title" not in data:
+        return jsonify({"error": "参数不完整"}), 400
+    db = get_db()
+    db.execute("UPDATE conversations SET title = ? WHERE id = ?",
+               (data["title"].strip()[:100], data["id"]))
+    db.commit()
+    db.close()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/history/<int:conv_id>", methods=["DELETE"])
+def delete_conversation(conv_id):
+    db = get_db()
+    db.execute("DELETE FROM messages WHERE conversation_id = ?", (conv_id,))
+    db.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
+    db.commit()
+    db.close()
+    return jsonify({"status": "ok"})
 
 
 # ============================================================
