@@ -62,13 +62,13 @@ def get_collection(client=None, collection_name: str = None):
     )
 
 
-def index_documents(chunks: List[Dict]) -> int:
+def index_documents(chunks: List[Dict], mode: str = "overwrite") -> int:
     """
     将文档片段写入向量数据库。
 
     参数:
-        chunks: 文档片段列表 [{"filepath", "relpath", "filename", "category",
-                                "chunk_index", "chunk_total", "chunk_text", ...}, ...]
+        chunks: 文档片段列表
+        mode: "overwrite"（清空重建）或 "append"（增量追加）
 
     返回:
         写入的片段数量
@@ -76,16 +76,17 @@ def index_documents(chunks: List[Dict]) -> int:
     client = get_client()
     collection = get_collection(client)
 
-    # 清空已有数据（重新索引）
-    existing_count = collection.count()
-    if existing_count > 0:
-        print(f"  清空已有索引 ({existing_count} 条)...")
-        all_ids = collection.get()["ids"]
-        # 分批删除
-        batch_size = 100
-        for i in range(0, len(all_ids), batch_size):
-            batch = all_ids[i:i + batch_size]
-            collection.delete(ids=batch)
+    if mode == "overwrite":
+        # 清空已有数据（重新索引）
+        existing_count = collection.count()
+        if existing_count > 0:
+            print(f"  清空已有索引 ({existing_count} 条)...")
+            all_ids = collection.get()["ids"]
+            # 分批删除
+            batch_size = 100
+            for i in range(0, len(all_ids), batch_size):
+                batch = all_ids[i:i + batch_size]
+                collection.delete(ids=batch)
 
     # 批量写入
     batch_size = 50

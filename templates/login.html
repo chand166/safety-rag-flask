@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 - 安全培训知识库</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #f0f2f5;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+.login-box {
+  background: #fff;
+  padding: 40px;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.1);
+  width: 360px;
+}
+.login-box h2 { margin-bottom: 24px; color: #1a1a1a; font-size: 22px; }
+.login-box input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color .2s;
+}
+.login-box input:focus { border-color: #1677ff; }
+.login-box button {
+  width: 100%;
+  padding: 12px;
+  background: #1677ff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  cursor: pointer;
+  margin-top: 16px;
+}
+.login-box button:hover { background: #4096ff; }
+.error { color: #ff4d4f; font-size: 13px; margin-top: 8px; display: none; }
+</style>
+</head>
+<body>
+<div class="login-box">
+  <h2>安全培训知识库</h2>
+  <input type="password" id="password" placeholder="请输入密码" autofocus
+         onkeydown="if(event.key==='Enter')login()">
+  <button onclick="login()">登 录</button>
+  <div class="error" id="error">密码错误，请重试</div>
+</div>
+<script>
+function login() {
+  var pwd = document.getElementById('password').value;
+  if (!pwd) return;
+  fetch('/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'password=' + encodeURIComponent(pwd)
+  }).then(function(r) {
+    if (r.ok) { window.location.href = '/'; }
+    else { document.getElementById('error').style.display = 'block'; }
+  });
+}
+</script>
+</body>
+</html>

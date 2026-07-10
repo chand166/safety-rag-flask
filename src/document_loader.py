@@ -1,10 +1,12 @@
-"""
-文档加载器 — 从知识库目录读取各类文件，提取纯文本
+"""文档加载器 — 从知识库目录读取各类文件，提取纯文本
 
-支持格式: PDF, DOCX, PPTX, XLSX, TXT
+支持格式: PDF, DOCX, PPTX, XLSX, TXT, PNG, JPG, JPEG
+扫描件 PDF 自动调用 PP-OCRv4 进行 OCR 识别
 """
 import os
 import re
+import json
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -12,11 +14,99 @@ from src.config_loader import config
 
 
 # ============================================================
+# OCR 辅助 — 调用 PP-OCR 子进程
+# ============================================================
+
+_OCR_SCRIPT = Path(__file__).parent.parent / "scripts" / "ocr_worker.py"
+_OCR_PYTHON = "python3"  # 全局 Python，已安装 PaddleOCR
+
+
+def _ocr_image(image_path: str) -> Optional[str]:
+    """调用 PP-OCR 子进程识别图片文本"""
+    try:
+        result = subprocess.run(
+            [_OCR_PYTHON, str(_OCR_SCRIPT), image_path],
+            capture_output=True, text=True, timeout=120,
+            stderr=subprocess.DEVNULL
+        )
+        # 从 stdout 中找到最后一行 JSON（跳过 PaddleOCR 的日志行）
+        lines = result.stdout.strip().split('\n')
+        json_line = ''
+        for line in reversed(lines):
+            line = line.strip()
+            if line.startswith('{'):
+                json_line = line
+                break
+        if not json_line:
+            print(f"  [WARN] OCR 输出中没有 JSON")
+            return None
+        data = json.loads(json_line)
+        if data.get("success"):
+            return data["text"]
+        else:
+            print(f"  [WARN] OCR 失败: {data.get('error', '未知错误')}")
+            return None
+    except subprocess.TimeoutExpired:
+        print(f"  [WARN] OCR 超时")
+        return None
+    except Exception as e:
+        print(f"  [WARN] OCR 调用异常: {e}")
+        return None
+
+
+# ============================================================
 # 单文件解析
 # ============================================================
 
+def _clean_pdf_text(text: str) -> str:
+    """清理 PDF 文本中的页码等噪声"""
+    # 去掉行首的 ". 117" 页码（可能接正文）
+    text = re.sub(r'^\.\s*\d{1,4}\s*', '', text, flags=re.MULTILINE)
+    # 去掉行首的纯数字页码
+    text = re.sub(r'^\d{1,4}\s*$', '', text, flags=re.MULTILINE)
+    # 去掉 "- 117 -" 格式
+    text = re.sub(r'^-\s*\d{1,4}\s*-\s*$', '', text, flags=re.MULTILINE)
+    # 清理多余空行
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def extract_text_from_pdf(filepath: str) -> Optional[str]:
-    """提取 PDF 文本"""
+    """提取 PDF 文本（PyMuPDF + 扫描件自动 OCR）"""
+    try:
+        import fitz
+        doc = fitz.open(filepath)
+        text_parts = []
+        for page_num, page in enumerate(doc):
+            t = page.get_text()
+            text_len = len(t.strip()) if t else 0
+
+            # 如果文本很少（< 50 字），视为扫描件/图片页，调用 OCR
+            if text_len < 50:
+                pix = page.get_pixmap(dpi=200)
+                img_path = f"/tmp/ocr_page_{Path(filepath).stem}_{page_num}.png"
+                pix.save(img_path)
+                ocr_text = _ocr_image(img_path)
+                try:
+                    os.remove(img_path)
+                except OSError:
+                    pass
+                if ocr_text and ocr_text.strip():
+                    text_parts.append(ocr_text.strip())
+                continue
+
+            # 正常提取的文本
+            cleaned = _clean_pdf_text(t.strip())
+            if cleaned:
+                text_parts.append(cleaned)
+
+        doc.close()
+        if text_parts:
+            return "\n\n".join(text_parts)
+    except Exception as e:
+        print(f"  [WARN] PyMuPDF 提取失败 ({Path(filepath).name}): {e}")
+
+    # 方案2: pypdf 回退
     try:
         import pypdf
         reader = pypdf.PdfReader(filepath)
@@ -29,6 +119,11 @@ def extract_text_from_pdf(filepath: str) -> Optional[str]:
     except Exception as e:
         print(f"  [WARN] PDF 提取失败 ({Path(filepath).name}): {e}")
         return None
+
+
+def extract_text_from_image(filepath: str) -> Optional[str]:
+    """提取图片文本（调用 PP-OCR）"""
+    return _ocr_image(filepath)
 
 
 def extract_text_from_docx(filepath: str) -> Optional[str]:
@@ -46,7 +141,6 @@ def extract_text_from_docx(filepath: str) -> Optional[str]:
 def extract_text_from_doc(filepath: str) -> Optional[str]:
     """提取旧版 DOC 文本（尝试用 python-docx, 否则返回提示）"""
     try:
-        # python-docx 也能读取部分 .doc
         from docx import Document
         doc = Document(filepath)
         texts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
@@ -119,6 +213,9 @@ EXTENSION_MAP = {
     ".xlsx": extract_text_from_xlsx,
     ".xls": extract_text_from_xlsx,
     ".txt": extract_text_from_txt,
+    ".png": extract_text_from_image,
+    ".jpg": extract_text_from_image,
+    ".jpeg": extract_text_from_image,
 }
 
 
@@ -160,6 +257,11 @@ def scan_documents(kb_path: Optional[str] = None) -> List[Dict]:
         raise FileNotFoundError(f"知识库目录不存在: {kb_root}")
 
     supported = config["documents"]["supported_extensions"]
+    # 确保图片格式也被支持
+    for img_ext in [".png", ".jpg", ".jpeg", ".bmp"]:
+        if img_ext not in supported:
+            supported.append(img_ext)
+
     docs = []
 
     for item in kb_root.rglob("*"):
