@@ -240,6 +240,17 @@ def delete_conversation(conv_id):
     return jsonify({"status": "ok"})
 
 
+@app.route("/history/clear", methods=["POST"])
+def clear_history():
+    """删除所有对话"""
+    db = get_db()
+    db.execute("DELETE FROM messages")
+    db.execute("DELETE FROM conversations")
+    db.commit()
+    db.close()
+    return jsonify({"status": "ok"})
+
+
 # ============================================================
 # 知识库统计
 # ============================================================

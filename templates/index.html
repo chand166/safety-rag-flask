@@ -137,7 +137,7 @@ body {
     box-shadow: 0 2px 8px rgba(0,0,0,0.03);
     border-bottom-left-radius: 4px;
 }
-.message-label { font-size: 0.75rem; color: #94A3B8; padding: 0 4px; }
+.message-label { font-size: 0.75rem; color: #94A3B8; padding: 0 18px; }
 /* 不同来源的标签颜色 */
 .message.web_search .message-label { color: #D97706; }
 .message.fallback .message-label { color: #8B5CF6; }
@@ -279,6 +279,7 @@ body {
     <div class="sidebar-section">
         <h3>📋 历史记录</h3>
         <button class="action-btn" onclick="newConversation()" style="margin-bottom:6px;">➕ 新建对话</button>
+        <button class="action-btn" onclick="deleteAllConversations()" style="margin-bottom:6px;color:#DC2626;border-color:rgba(220,38,38,0.15);">🗑️ 删除所有</button>
         <div id="history-list" class="history-list">
             <div class="history-empty">加载中...</div>
         </div>
@@ -639,7 +640,22 @@ function deleteConversation(convId) {
         showToast('已删除');
     })
     .catch(() => showToast('删除失败'));
-}
+    }
+
+    function deleteAllConversations() {
+        if (!confirm('确定要删除所有对话吗？此操作不可恢复。')) return;
+        fetch('/history/clear', {method: 'POST'})
+        .then(r => r.json())
+        .then(() => {
+            currentConversationId = null;
+            const chat = document.getElementById('chat-area');
+            chat.innerHTML = '';
+            showWelcome();
+            renderHistoryFromDom();
+            showToast('已删除所有对话');
+        })
+        .catch(() => showToast('删除失败'));
+    }
 
 function showWelcome() {
     const chat = document.getElementById('chat-area');
