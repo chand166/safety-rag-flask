@@ -269,26 +269,50 @@ def generate_answer(question: str, top_k: int = 5, show_context: bool = False,
     # ---- 2. 精确匹配（无论向量结果如何都执行） ----
     exact_results = exact_search(search_query, max_files=top_k)
 
-    # ---- 3. 合并检索结果 ----
+    # ---- 3. 合并检索结果（精确匹配优先，无精确匹配时尝试联网） ----
     all_docs = []
     seen_paths = set()
 
-    if vector_results and has_relevant:
-        # 向量结果优先（语义相关度高）
-        for r in vector_results:
-            key = r["relpath"]
-            if key not in seen_paths:
-                all_docs.append(r)
-                seen_paths.add(key)
-        # 精确匹配补充（追加未覆盖的文档）
-        for r in exact_results:
-            if r["relpath"] not in seen_paths:
-                all_docs.append(r)
-                seen_paths.add(r["relpath"])
-    elif exact_results:
-        # 向量结果不够相关，但精确匹配有命中 → 用精确匹配结果
+    # 精确匹配有命中 → 本地文档可信，直接用
+    if exact_results:
         all_docs = exact_results
         seen_paths = {r["relpath"] for r in exact_results}
+        # 补充向量结果中未覆盖的文档
+        if vector_results and has_relevant:
+            for r in vector_results:
+                if r["relpath"] not in seen_paths:
+                    all_docs.append(r)
+                    seen_paths.add(r["relpath"])
+    elif vector_results and has_relevant:
+        # 只有语义匹配，没有精确匹配 → 文档可能只是沾边
+        # 如果联网搜索开启，先尝试联网搜索
+        if web_search_enabled:
+            from src.web_search import web_search, format_search_context
+            web_results = web_search(question, max_results=5)
+            if web_results and "error" not in web_results[0]:
+                context = format_search_context(web_results)
+                system_prompt = "你是一个知识库AI助手。以下是从互联网搜索到的相关信息，请基于这些信息回答用户的问题。如果信息不足，可以补充你的知识。用中文回答，简洁明了。"
+                user_msg = f"互联网搜索结果：\n{context}\n\n用户问题：{question}"
+                answer = llm.chat([
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_msg},
+                ])
+                answer = _clean_answer(answer)
+                sources = []
+                for r in web_results:
+                    sources.append({
+                        "filename": r["title"],
+                        "relpath": r["url"],
+                        "filepath": r["url"],
+                        "category": "网络搜索",
+                        "score": 0,
+                        "snippet": r["snippet"],
+                    })
+                return {"question": question, "answer": answer, "sources": sources,
+                        "from_kb": False, "match_type": "web_search"}
+        # 联网搜索未开启或失败 → 用本地文档（虽然不精确）
+        all_docs = list(vector_results)
+        seen_paths = {r["relpath"] for r in vector_results}
 
     if all_docs:
         # 构建上下文
